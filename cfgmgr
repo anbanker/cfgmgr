@@ -38,7 +38,7 @@ def LoadCacheData():
 			Files[FileRelPath]['CacheLastModTime'] = LastModTime
 			Files[FileRelPath]['CachePath'] = FilePath
 
-def LoadTemplateData():
+def LoadTemplateFiles():
 	for root, dirs, files in os.walk(TemplateDirectory):
 		#for d in dirs:
 		#	print(f"DEBUG: {root} {d}")
@@ -178,7 +178,7 @@ def UpdateCache():
 					else:
 						LOG(3, f"  Cache:DidNotExist")
 
-def UpdateStatus():
+def CalculateStatus():
 	for RelPath, attr in Files.items():
 		## Skip if file shouldn't be managed in working directory
 		if 'CacheLastModTime' not in attr:
@@ -382,7 +382,7 @@ if __name__ == "__main__":
 	if not CacheSubdir: CacheSubdir = 'ROOT_DIR'
 	CacheDirectory = os.path.join(CacheRoot, CacheSubdir)
 	ApplyLog = os.path.join(TemplateDirectory, 'apply.log')
-	LoadTemplateData()
+	LoadTemplateFiles()
 	LoadCacheData()
 	
 	## Remove program name
@@ -399,12 +399,12 @@ if __name__ == "__main__":
 	
 	elif SubCommand == 'status':
 		UpdateCache()
-		UpdateStatus()
+		CalculateStatus()
 		DisplayStatus()
 	
 	elif SubCommand == 'statusOneline':
 		UpdateCache()
-		UpdateStatus()
+		CalculateStatus()
 		PrintStatusOneline()
 	
 	elif SubCommand == 'git':
@@ -418,12 +418,12 @@ if __name__ == "__main__":
 	
 	elif SubCommand == 'add':
 		UpdateCache()
-		UpdateStatus()
+		CalculateStatus()
 		Add(sys.argv)
 	
 	elif SubCommand == 'apply':
 		UpdateCache()
-		UpdateStatus()
+		CalculateStatus()
 		LoadWorkingHashes([])
 		Apply(sys.argv)
 	else:
