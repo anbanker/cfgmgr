@@ -26,6 +26,10 @@ class TemplateHandleMode(Enum):
 	SkipEmpty = 3
 	SkipUnmodified = 4
 
+class OverallStatus(Enum):
+	ExtensionOnly = 2
+	AllExceptExtension = 3
+
 def LoadCacheData():
 	for root, dirs, files in os.walk(CacheDirectory):
 		for file in files:
@@ -33,10 +37,7 @@ def LoadCacheData():
 			LastModTime = os.path.getmtime(FilePath)
 			FileRelPath = os.path.relpath(FilePath, CacheDirectory)
 			if not FileRelPath in Files:
-				print(f"FOUND EXTRA CACHE FILE: {FileRelPath}")
-				Files[FileRelPath] = {}
-			Files[FileRelPath]['CacheLastModTime'] = LastModTime
-			Files[FileRelPath]['CachePath'] = FilePath
+				os.remove(FilePath)
 
 def LoadTemplateFiles():
 	for root, dirs, files in os.walk(TemplateDirectory):
@@ -48,16 +49,24 @@ def LoadTemplateFiles():
 			TemplateFileRelPath = os.path.relpath(TemplateFileAbsPath, TemplateDirectory)
 			
 			# Skip cfgmgr special files
-			if TemplateFileRelPath == 'apply.log': continue
+			CacheFileRelPath,TemplateFileExtension = os.path.splitext(TemplateFileRelPath)
+			if TemplateFileExtension == '.cfgmgr': continue
 			
 			# Determine how to handle this file based on mode and extension
-			IsTemplate = 0
-			CacheFileRelPath,TemplateFileExtension = os.path.splitext(TemplateFileRelPath)
+			IsTemplate = None
 			if TemplateMode == TemplateMode.ExtensionOnly:
 				if TemplateFileExtension in ['.tmpl', '.template']:
 					IsTemplate = 1
 					# CacheFileRelPath already set, removing extionsion
 				else:
+					CacheFileRelPath = TemplateFileRelPath
+					IsTemplate = 0
+			elif TemplateMode == TemplateMode.AllExceptExtension:
+				if TemplateFileExtension in ['.notmpl', '.notemplate']:
+					#CacheFileRelPath already set
+					IsTemplate = 0
+				else:
+					IsTemplate = 1
 					CacheFileRelPath = TemplateFileRelPath
 			else:
 				raise NotImplementedError()
@@ -66,6 +75,7 @@ def LoadTemplateFiles():
 			Files[CacheFileRelPath] = {
 				'TemplatePath': TemplateFileAbsPath,
 				'RelPath': CacheFileRelPath,
+				'TemplateFileRelPath': TemplateFileRelPath,
 				'IsTemplate': IsTemplate}
 			
 			## add timestamp
@@ -80,58 +90,87 @@ def LoadTemplateFiles():
 			## Add cache path
 			Files[CacheFileRelPath]['CachePath'] = os.path.join(CacheDirectory, CacheFileRelPath)
 	
+	
+	#print(f"DEBUG: Files={Files}")
 	if os.path.exists(ApplyLog):
 		with open(ApplyLog, 'r') as file:
 			for line in file:
-				#Skip comments
+				# Skip comments
 				if line.startswith('#'): continue
 				
+				# Process line
 				RelPath,LastApplyHash = line.strip().split(' ', 1)
+				
+				# Skip non-existant files
+				if RelPath not in Files: continue
+				
+				# Update file properties
 				Files[RelPath]['LastApplyHash'] = LastApplyHash
 
 
 
 ## Define global variables
 current_verbosity = 2
-TemplateMode = TemplateMode.ExtensionOnly
+#TemplateMode = TemplateMode.ExtensionOnly
+TemplateMode = TemplateMode.AllExceptExtension
 CacheRoot = '/home/abanker/.cache/cfgmgr'
 CacheDirectory = ''
 TemplateDirectory = '/home/abanker/tmp/cfgmgr'
 TemplateDirectory = '/home/abanker/tmp/cfgmgr.templates'
+TemplateDirectory = '/home/abanker/vc/anbanker/config-home'
 WorkingDirectory = '/home/abanker'
-TemplateTool = Environment(loader=FileSystemLoader(TemplateDirectory))
+#https://jinja.palletsprojects.com/en/stable/templates/#whitespace-control
+TemplateTool = Environment(
+		loader=FileSystemLoader(TemplateDirectory),
+		trim_blocks=True)
 ApplyLog = ''
 Files = {}
+TemplateData = {}
 
 
 
-# Create an environment object with the directory of the templates
+def LoadTemplateData():
+	# Automatic template data
+	TemplateData['hostname'] = socket.gethostname()
+	TemplateData['IsWSL'] = os.path.exists('/proc/sys/fs/binfmt_misc/WSLInterop')
+	
+	# User provided template data
+	TemplateDataFile = os.path.join(TemplateDirectory, 'private-data.cfgmgr')
+	if os.path.exists(TemplateDataFile):
+		# Read file
+		with open(TemplateDataFile, 'r') as file:
+			# Process each line
+			for line in file:
+				# Skip comments
+				if line.startswith('#'): continue
+				
+				# Split line into key and value
+				key, value = re.split('\s*=\s*', line.strip(), 1)
+				
+				# Add to TemplateData
+				TemplateData[key] = value
 
-# Define some context data
-TemplateData = {
-	'hostname': socket.gethostname(),
-}
-
-
-def UpdateCache():
-	LOG(3, 'cfgmgr: Updating cache...')
+def UpdateCacheFiles():
+	LoadTemplateData()
+	LOG(3, 'cfgmgr: UpdateCacheFiles: Beginning cache update...')
 	for RelPath,attr in Files.items():
-		#print(f"DEBUG:   UpdateCache: {RelPath}")
+		LOG(4, f"cfgmgr: UpdateCacheFiles: Processing File: {RelPath}")
 		
 		## Determine if we need to update the cache file
-		UpdateCache = 0
 		if 'TemplateLastModTime' not in attr:
-			LOG(3, f"Cache:Deleted        : {RelPath}")
+			LOG(3, f"cfgmgr: UpdateCacheFiles: CacheStatus: Deleted: {RelPath}")
+			UpdateCache = 0
 			del attr['CacheLastModTime']
 			os.remove(attr['CachePath'])
 		elif 'CacheLastModTime' not in attr:
-			LOG(3, f"Cache:Update(missing): {RelPath}")
+			LOG(3, f"cfgmgr: UpdateCacheFiles: CacheStatus: Update(missing): {RelPath}")
 			UpdateCache = 1
 		elif attr['TemplateLastModTime'] > attr['CacheLastModTime']:
-			LOG(3, f"Cache:Update(old)    : {RelPath}")
+			LOG(3, f"cfgmgr: UpdateCacheFiles: CacheStatus: Update(old): {RelPath}")
 			UpdateCache = 1
 		elif attr['CacheLastModTime'] >= attr['TemplateLastModTime']:
-			LOG(3, f"Cache:Unmodified     : {RelPath}")
+			LOG(3, f"cfgmgr: UpdateCacheFiles: CacheStatus: Unmodified: {RelPath}")
+			UpdateCache = 0
 		else:
 			# Should never happen
 			print(f"DEBUG: {RelPath=}, {attr=}")
@@ -143,7 +182,7 @@ def UpdateCache():
 			CacheFileDir = os.path.dirname(attr['CachePath'])
 			
 			if not attr['IsTemplate']:
-				LOG(3, f"  Cache:Copy")
+				LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache: Copy: {RelPath}")
 				os.makedirs(CacheFileDir, exist_ok=True)
 				shutil.copy(attr['TemplatePath'], attr['CachePath'])
 				os.utime(attr['CachePath'], (attr['TemplateLastModTime'], attr['TemplateLastModTime']))
@@ -151,17 +190,19 @@ def UpdateCache():
 				## Update last mod time
 				attr['CacheLastModTime'] = os.path.getmtime(attr['CachePath'])
 			else:
-				LOG(3, f"  Cache:ApplyTemplate")
+				LOG(4, f"cfgmgr: UpdateCacheFiles: UpdateCache: ApplyTemplate: File: {RelPath}")
 				
 				## Load and apply template
-				template = TemplateTool.get_template(attr['TemplatePath'])
+				#template = TemplateTool.get_template(attr['TemplatePath'])
+				template = TemplateTool.get_template(attr['TemplateFileRelPath'])
+				
 				Rendered = template.render(TemplateData)
 				attr['CacheContent'] = Rendered
 				
 				## Skip if empty after rendering
 				if Rendered.strip():
 					# File is non-empty
-					LOG(3, f"  Cache:Updated")
+					LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache: ApplyTemplate: Cache upated: {RelPath}")
 					os.makedirs(CacheFileDir, exist_ok=True)
 					with open(attr['CachePath'], 'w') as file:
 						file.write(Rendered)
@@ -169,23 +210,23 @@ def UpdateCache():
 					## Update last mod time
 					attr['CacheLastModTime'] = os.path.getmtime(attr['CachePath'])
 				else:
-					LOG(3, f"  Cache:Template:Empty")
+					LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache: ApplyTemplate: Empty: {RelPath}")
 					# File is empty
 					if 'CacheLastModTime' in attr:
-						LOG(3, f"  Cache:Removed")
+						LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache: ApplyTemplate: Empty: Removed: {os.remove(attr['CachePath'])}")
 						os.remove(attr['CachePath'])
 						del attr['CacheLastModTime']
 					else:
-						LOG(3, f"  Cache:DidNotExist")
+						LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache: ApplyTemplate: Empty: CacheDoesNotExist: {RelPath}")
 
 def CalculateStatus():
 	for RelPath, attr in Files.items():
 		## Skip if file shouldn't be managed in working directory
 		if 'CacheLastModTime' not in attr:
 			if 'WorkingLastModTime' not in attr:
-				attr['Status'] = 'Non-existant'
+				attr['Status'] = 'Empty'
 			else:
-				attr['Status'] = 'Exists-extra'
+				attr['Status'] = 'Extra'
 		else:
 			if 'WorkingLastModTime' not in attr:
 				attr['Status'] = 'Missing'
@@ -202,8 +243,15 @@ def CalculateStatus():
 					
 					if WorkingContent == attr['CacheContent']:
 						attr['Status'] = 'Same(content)'
+					elif WorkingContent[0:-1] == attr['CacheContent']:
+						attr['Status'] = 'Similar'
 					else:
 						attr['Status'] = 'Diff'
+						with open('/tmp/cfgmgr.w.txt', 'w') as file:
+							file.write(WorkingContent)
+						with open('/tmp/cfgmgr.c.txt', 'w') as file:
+							file.write(attr['CacheContent'])
+						if RelPath == ".zshenv": raise NotImplementedError()
 
 def DisplayStatus():
 	print('## git status')
@@ -213,8 +261,11 @@ def DisplayStatus():
 		# Skip files with "same" status
 		if attr['Status'] == 'Same(ts)': continue
 		if attr['Status'] == 'Same(content)': continue
+		if attr['Status'] == 'Empty': continue
+		if attr['Status'] == 'Similar': continue
 		if NeedTitle:
 			print("## Differences between template repo and working directory:")
+			print("   Run 'cfgmgr apply' to apply template to working directory")
 			NeedTitle=0
 		print(f"    {attr['Status'].ljust(13)}: {RelPath}")
 
@@ -253,8 +304,15 @@ def Apply(FilesToApply):
 				continue
 			
 			if attr['Status'] == "Same(content)":
-				print(f"Updating timestamp...")
+				#print(f"Updating timestamp...")
 				os.utime(attr['WorkingPath'], (attr['CacheLastModTime'], attr['CacheLastModTime']))
+			elif attr['Status'] == 'Empty':
+				#Nothing to do (cache and working don't exist)
+				pass
+			elif 'CacheLastModTime' not in attr:
+				print(f"DEBUG: attr={attr}")
+				os.remove(attr['WorkingPath'])
+				LogFile.write(f"{RelPath} 00")
 			else:
 				with open(attr['CachePath'], 'r') as file:
 					CacheContent = file.read()
@@ -375,13 +433,34 @@ def Add(FilesToAdd):
 		os.remove(CachePath)
 		subprocess.run(['git', '-C', TemplateDirectory, 'add', RelPath], text=True)
 
+def Diff(FilesToDiff):
+	FileType1 = 'Template'
+	FileType2 = 'Working'
+	if FilesToDiff[0] == '--cvw':
+		FileType1 = 'Cache'
+		FilesToDiff.pop(0)
+	elif FilesToDiff[0] == '--tvc':
+		FileType2 = 'Cache'
+		FilesToDiff.pop(0)
+	
+	if len(FilesToDiff) == 0:
+		raise UserWarning("diff requires arguments")
+	
+	for RelPath in FilesToDiff:
+		if RelPath not in Files:
+			raise UserError(f"ERROR: {RelPath} is not managed")
+		
+		attr = Files[RelPath]
+		subprocess.run(['/usr/bin/bcompare', attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
+
+
 if __name__ == "__main__":
 	#TODO: Process options
 	
 	CacheSubdir = TemplateDirectory.lstrip('/').replace('/','--')
 	if not CacheSubdir: CacheSubdir = 'ROOT_DIR'
 	CacheDirectory = os.path.join(CacheRoot, CacheSubdir)
-	ApplyLog = os.path.join(TemplateDirectory, 'apply.log')
+	ApplyLog = os.path.join(TemplateDirectory, 'apply-log.cfgmgr')
 	LoadTemplateFiles()
 	LoadCacheData()
 	
@@ -395,15 +474,15 @@ if __name__ == "__main__":
 		SubCommand = sys.argv.pop(0)
 	
 	if SubCommand == 'UpdateCache':
-		UpdateCache()
+		UpdateCacheFiles()
 	
 	elif SubCommand == 'status':
-		UpdateCache()
+		UpdateCacheFiles()
 		CalculateStatus()
 		DisplayStatus()
 	
 	elif SubCommand == 'statusOneline':
-		UpdateCache()
+		UpdateCacheFiles()
 		CalculateStatus()
 		PrintStatusOneline()
 	
@@ -411,20 +490,20 @@ if __name__ == "__main__":
 		subprocess.run(['git', '-C', TemplateDirectory, '--no-pager', *sys.argv], text=True)
 	
 	elif SubCommand == 'diff':
-		if len(sys.argv) == 0:
-			raise UserWarning("diff requires arguments")
-		else:
-			subprocess.run(['/usr/bin/bcompare', os.path.join(TemplateDirectory, sys.argv[0]), os.path.join(WorkingDirectory, sys.argv[0])], text=True)
+		UpdateCacheFiles()
+		Diff(sys.argv)
 	
 	elif SubCommand == 'add':
-		UpdateCache()
+		UpdateCacheFiles()
 		CalculateStatus()
 		Add(sys.argv)
 	
 	elif SubCommand == 'apply':
-		UpdateCache()
+		UpdateCacheFiles()
 		CalculateStatus()
 		LoadWorkingHashes([])
 		Apply(sys.argv)
 	else:
-		raise NotImplementedError()
+		#raise Exception('Usage Error', f"ERROR: Unknown sub-command: {SubCommand}")
+		print(f"ERROR: Unknown sub-command: {SubCommand}")
+		exit(1)
