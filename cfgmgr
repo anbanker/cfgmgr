@@ -30,12 +30,10 @@ class OverallStatus(Enum):
 current_verbosity = 2
 #TemplateMode = TemplateMode.ExtensionOnly
 TemplateMode = TemplateMode.AllExceptExtension
-CacheRoot = '/home/abanker/.cache/cfgmgr'
+CacheRoot = f"{os.environ['HOME']}/.cache/cfgmgr"
 CacheDirectory = ''
-TemplateDirectory = '/home/abanker/tmp/cfgmgr'
-TemplateDirectory = '/home/abanker/tmp/cfgmgr.templates'
-TemplateDirectory = '/home/abanker/vc/anbanker/config-home'
-WorkingDirectory = '/home/abanker'
+TemplateDirectory = f"{os.environ['HOME']}/vc/anbanker/config-home"
+WorkingDirectory = os.environ['HOME']
 #https://jinja.palletsprojects.com/en/stable/templates/#whitespace-control
 TemplateTool = Environment(
 		loader=FileSystemLoader(TemplateDirectory),
@@ -153,7 +151,9 @@ def LoadTemplateData():
 				
 				# Add to TemplateData
 				TemplateData[key] = value
-
+	#print(f"TemplateData={TemplateData}")
+	#exit(2)
+	
 def UpdateCacheFiles():
 	LoadTemplateData()
 	LOG(3, f'cfgmgr: UpdateCacheFiles: Beginning cache update ({CacheDirectory})...')
@@ -211,8 +211,8 @@ def UpdateCacheFiles():
 					attr['IsTemplate'] = False
 				else:
 					LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache:         ApplyTemplate: Yes-Template: {RelPath}")
-					print(f'** RENDERED **\n{Rendered}\n** END RENDERED **')
-					print(f'** TEMPLATE **\n{TemplateContent}\n** END TEMPLATE **')
+					#print(f'** RENDERED **\n{Rendered}\n** END RENDERED **')
+					#print(f'** TEMPLATE **\n{TemplateContent}\n** END TEMPLATE **')
 					attr['IsTemplate'] = True
 				os.makedirs(CacheFileDir, exist_ok=True)
 				with open(attr['CachePath'], 'w') as file:
@@ -250,7 +250,7 @@ def CalculateStatus():
 			else:
 				attr['Status'] = "Exists-but-shouldn't"
 		else:
-			if 'WorkingLastModTime' == None:
+			if attr['WorkingLastModTime'] == None:
 				attr['Status'] = 'Missing'
 			else:
 				if attr['WorkingLastModTime'] == attr['Last_ApplyModTime']:
@@ -285,7 +285,7 @@ def DisplayStatus():
 	for RelPath, attr in Files.items():
 		# Skip files with "same" status
 		if attr['Status'] == 'Same(ts)': continue
-		#if attr['Status'] == 'Same(content)': continue
+		if attr['Status'] == 'Same(content)': continue
 		if attr['Status'] == 'Empty': continue
 		#if attr['Status'] == 'Similar': continue
 		if NeedTitle:
@@ -474,7 +474,8 @@ def Diff(FilesToDiff):
 			raise UserError(f"ERROR: {RelPath} is not managed")
 		
 		attr = Files[RelPath]
-		subprocess.run(['/usr/bin/bcompare', attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
+		#subprocess.run(['/usr/bin/bcompare', attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
+		subprocess.run(['/usr/bin/meld', attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
 
 
 if __name__ == "__main__":
@@ -496,7 +497,7 @@ if __name__ == "__main__":
 	CacheSubdir = TemplateDirectory.lstrip('/').replace('/','--')
 	if not CacheSubdir: CacheSubdir = 'ROOT_DIR'
 	CacheDirectory = os.path.join(CacheRoot, CacheSubdir)
-	RunLog = os.path.join(TemplateDirectory, 'run-log.cfgmgr')
+	RunLog = os.path.join(CacheDirectory, 'run-log.cfgmgr')
 	LoadTemplateFiles()
 	
 	if SubCommand == 'UpdateCache':
