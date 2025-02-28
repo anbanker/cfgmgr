@@ -41,6 +41,7 @@ TemplateTool = Environment(
 RunLog = ''
 Files = {}
 TemplateData = {}
+ConfigData = {}
 
 def LOG(verbosity_level, message):
 	if current_verbosity >= verbosity_level:
@@ -147,12 +148,30 @@ def LoadTemplateData():
 				if line.startswith('#'): continue
 				
 				# Split line into key and value
-				key, value = re.split('\s*=\s*', line.strip(), 1)
+				key, value = re.split(r'\s*=\s*', line.strip(), 1)
 				
 				# Add to TemplateData
 				TemplateData[key] = value
-	#print(f"TemplateData={TemplateData}")
-	#exit(2)
+
+def LoadConfigData():
+	# Defaults
+	ConfigData['difftool'] = '/usr/bin/meld'
+	
+	# User provided template data
+	ConfigDataFile = os.path.join(TemplateDirectory, 'config-data.cfgmgr')
+	if os.path.exists(ConfigDataFile):
+		# Read file
+		with open(ConfigDataFile, 'r') as file:
+			# Process each line
+			for line in file:
+				# Skip comments
+				if line.startswith('#'): continue
+				
+				# Split line into key and value
+				key, value = re.split(r'\s*=\s*', line.strip(), 1)
+				
+				# Add to TemplateData
+				ConfigData[key] = value
 	
 def UpdateCacheFiles():
 	LoadTemplateData()
@@ -475,7 +494,7 @@ def Diff(FilesToDiff):
 		
 		attr = Files[RelPath]
 		#subprocess.run(['/usr/bin/bcompare', attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
-		subprocess.run(['/usr/bin/meld', attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
+		subprocess.run([ConfigData['difftool'], attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
 
 
 if __name__ == "__main__":
@@ -519,6 +538,7 @@ if __name__ == "__main__":
 		subprocess.run(['git', '-C', TemplateDirectory, '--no-pager', *sys.argv], text=True)
 	
 	elif SubCommand == 'diff':
+		LoadConfigData()
 		UpdateCacheFiles()
 		Diff(sys.argv)
 	
