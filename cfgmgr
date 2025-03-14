@@ -1,4 +1,4 @@
-#!python3
+#!/usr/bin/python3
 from jinja2 import Environment, FileSystemLoader
 import socket
 import os
@@ -119,7 +119,8 @@ def LoadTemplateFiles():
 				
 				# Skip non-existant files
 				if RelPath not in Files:
-					print(f"WARNING: {RelPath} not found in template directory")
+					#print(f"WARNING: {RelPath} not found in template directory")
+					#File is removed
 					continue
 				
 				# Update file properties
@@ -273,7 +274,7 @@ def CalculateStatus():
 				attr['Status'] = 'Missing'
 			else:
 				if attr['WorkingLastModTime'] == attr['Last_ApplyModTime']:
-					attr['Status'] = 'Same(ts)'
+					attr['Status'] = 'Same'
 				else:
 					if RelPath == '.gitignore':
 						print(f'attr={attr}')
@@ -413,7 +414,9 @@ def Apply(FilesToApply):
 			
 			## Make sure file was not modified in working directory since last apply
 			if (attr['Last_ApplyModTime'] > 0) and (attr['WorkingLastModTime'] != attr['Last_ApplyModTime']):
+				
 				print(f"{RelPath}: File has been modified in working directory - skipping!")
+				pp(attr)
 				continue
 			
 			LOG(4, f"cfgmgr: Apply:     Status={attr['Status']}")
@@ -447,7 +450,6 @@ def Apply(FilesToApply):
 				LogFile.write(f"{RelPath},{attr['Last_ApplyModTime']},{attr['TemplateLastModTime']},{attr['IsTemplate']},{attr['IsEmpty']}\n")
 
 def Add(FilesToAdd):
-	raise NotImplementedError()
 	for RelPath in FilesToAdd:
 		WorkingPath = ''
 		TemplatePath = ''
@@ -471,9 +473,9 @@ def Add(FilesToAdd):
 		TemplateDir = os.path.dirname(TemplatePath)
 		os.makedirs(TemplateDir, exist_ok=True)
 		shutil.copy(WorkingPath, TemplatePath)
-		os.utime(TemplatePath, (WorkingLastModTime, WorkingLastModTime))
-		os.remove(CachePath)
 		subprocess.run(['git', '-C', TemplateDirectory, 'add', RelPath], text=True)
+		
+		#TO DO: Update cache file, verify it matches (no "template" processing errrors)
 
 def Diff(FilesToDiff):
 	FileType1 = 'Template'
