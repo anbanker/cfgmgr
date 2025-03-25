@@ -49,20 +49,20 @@ def LOG(verbosity_level, message):
 
 def LoadTemplateFiles():
 	LOG(3, 'cfgmgr: LoadTemplateFiles: Beginning file load...')
-	for root, dirs, files in os.walk(TemplateDirectory):
+	for root, dirs, filesInDir in os.walk(TemplateDirectory):
 		LOG(4, f"cfgmgr: LoadTemplateFiles: Found directory: {root}")
 		#for d in dirs:
 		dirs[:] = [d for d in dirs if d not in ['.git']]
-		for file in files:
+		for file in filesInDir:
 			TemplateFileAbsPath = os.path.join(root, file)
 			TemplateFileRelPath = os.path.relpath(TemplateFileAbsPath, TemplateDirectory)
 			LOG(4, f"cfgmgr: LoadTemplateFiles:   Found File: {TemplateFileRelPath}")
 			
-			# Skip cfgmgr special files
+			# Skip cfgmgr special filesInDir
 			CacheFileRelPath,TemplateFileExtension = os.path.splitext(TemplateFileRelPath)
 			if TemplateFileExtension == '.cfgmgr': continue
 			
-			# Skip git/github special files
+			# Skip git/github special filesInDir
 			if TemplateFileRelPath == '.gitignore': continue
 			if TemplateFileRelPath == 'README.md': continue
 			
@@ -104,7 +104,7 @@ def LoadTemplateFiles():
 			## Add cache path
 			Files[CacheFileRelPath]['CachePath'] = os.path.join(CacheDirectory, CacheFileRelPath)
 			
-			LOG(4, f"cfgmgr: LoadTemplateFiles:    Summary: {CacheFileRelPath}, TemplateFileRelPath={TemplateFileRelPath}, IsTemplate={IsTemplate}, TemplateLastModTime={Files[CacheFileRelPath]['TemplateLastModTime']}")
+			LOG(4, f"cfgmgr: LoadTemplateFiles:    Summary1: {CacheFileRelPath}, TemplateFileRelPath={TemplateFileRelPath}, IsTemplate={IsTemplate}, TemplateLastModTime={Files[CacheFileRelPath]['TemplateLastModTime']}")
 	
 	if os.path.exists(RunLog):
 		LOG(3, 'cfgmgr: LoadTemplateFiles: Loading run log...')
@@ -117,21 +117,31 @@ def LoadTemplateFiles():
 				# Process line
 				RelPath,Last_ApplyModTime,Last_CacheUpdateTime,Last_CacheUpdateIsTemplate,Last_IsEmpty = line.strip().split(',')
 				
-				# Skip non-existant files
+				## Convert strings
+				Last_ApplyModTime = float(Last_ApplyModTime)
+				Last_CacheUpdateTime = float(Last_CacheUpdateTime)
+				Last_CacheUpdateIsTemplate = (Last_CacheUpdateIsTemplate == '1')
+				Last_IsEmpty = (Last_IsEmpty == '1')
+				LOG(4, f'cfgmgr: LoadTemplateFiles: Loading run log:   Line: {RelPath}, Last_ApplyModTime={Last_ApplyModTime}, Last_CacheUpdateTime={Last_CacheUpdateTime}, Last_CacheUpdateIsTemplate={Last_CacheUpdateIsTemplate}, Last_IsEmpty={Last_IsEmpty}')
+				
+				# Skip non-existant filesInDir
 				if RelPath not in Files:
 					#print(f"WARNING: {RelPath} not found in template directory")
 					#File is removed
 					continue
 				
 				# Update file properties
-				Files[RelPath]['Last_ApplyModTime'] = float(Last_ApplyModTime)
-				Files[RelPath]['Last_CacheUpdateTime'] = float(Last_CacheUpdateTime)
-				Files[RelPath]['IsEmpty'] = (Last_IsEmpty == 'True')
+				Files[RelPath]['Last_ApplyModTime'] = Last_ApplyModTime
+				Files[RelPath]['Last_CacheUpdateTime'] = Last_CacheUpdateTime
+				Files[RelPath]['IsEmpty'] = Last_IsEmpty
 				if     (Files[RelPath]['IsTemplate']) \
 				   and (not Last_CacheUpdateIsTemplate) \
 				   and (Files[RelPath]['TemplateLastModTime'] == Last_CacheUpdateTime):
 					Files[RelPath]['IsTemplate'] = False
 					LOG(4, f"cfgmgr: LoadTemplateFiles: Clearing template flag: {RelPath}")
+	
+	for RelPath,attr in Files.items():
+		LOG(4, f"cfgmgr: LoadTemplateFiles: FileSummary: {RelPath}, IsTemplate={attr['IsTemplate']}, IsEmpty={attr['IsEmpty']}, TemplateLastModTime={attr['TemplateLastModTime']}")
 
 def LoadTemplateData():
 	# Automatic template data
@@ -178,17 +188,22 @@ def UpdateCacheFiles():
 	LoadTemplateData()
 	LOG(3, f'cfgmgr: UpdateCacheFiles: Beginning cache update ({CacheDirectory})...')
 	
-	LOG(4, 'cfgmgr: UpdateCacheFiles:   Removing deleted files...')
+	LOG(4, 'cfgmgr: UpdateCacheFiles:   Removing deleted filesInDir...')
 	ExistingCache = {}
-	for root, dirs, files in os.walk(CacheDirectory):
-		for file in files:
+	for root, dirs, filesInDir in os.walk(CacheDirectory):
+		for file in filesInDir:
+			## Skip cfgmgr special filesInDir
+			file_extension = os.path.splitext(file)[1]
+			if file_extension == '.cfgmgr': continue
+			
+			## Remove file if not in template directory
 			FilePath = os.path.join(root, file)
 			FileRelPath = os.path.relpath(FilePath, CacheDirectory)
 			if not FileRelPath in Files:
 				LOG(4, f"cfgmgr: UpdateCacheFiles:     Deleting: {FileRelPath}")
 				os.remove(FilePath)
 			else:
-				# Save which files exist in case template processing indicates this should be removed
+				# Save which filesInDir exist in case template processing indicates this should be removed
 				ExistingCache[FileRelPath] = 1
 	
 	LOG(4, 'cfgmgr: UpdateCacheFiles:   Updating cache...')
@@ -205,11 +220,11 @@ def UpdateCacheFiles():
 		attr['IsEmpty'] = False
 		
 		if not attr['IsTemplate']:
-			LOG(4, f"cfgmgr: UpdateCacheFiles:         Copy: {RelPath}")
+			LOG(4, f"cfgmgr: UpdateCacheFiles:       Copy: {RelPath}")
 			os.makedirs(CacheFileDir, exist_ok=True)
 			shutil.copy(attr['TemplatePath'], attr['CachePath'])
 		else:
-			LOG(4, f"cfgmgr: UpdateCacheFiles:         ApplyTemplate: {RelPath}")
+			LOG(4, f"cfgmgr: UpdateCacheFiles:       ApplyTemplate: {RelPath}")
 			
 			# Read template
 			with open(attr['TemplatePath'], 'r') as file:
@@ -224,13 +239,13 @@ def UpdateCacheFiles():
 			## Skip if empty after rendering
 			if Rendered.strip():
 				# File is non-empty
-				LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache:         ApplyTemplate: Cache upated: {RelPath}")
+				LOG(3, f"cfgmgr: UpdateCacheFiles:       ApplyTemplate: Cache upated: {RelPath}")
 				if (Rendered == TemplateContent) or (Rendered == TemplateContent[:-1]):
 					#Mark as non-template, so it can be updated from working directory
-					LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache:         ApplyTemplate: Non-template: {RelPath}")
+					LOG(3, f"cfgmgr: UpdateCacheFiles:     ApplyTemplate: Non-template: {RelPath}")
 					attr['IsTemplate'] = False
 				else:
-					LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache:         ApplyTemplate: Yes-Template: {RelPath}")
+					LOG(3, f"cfgmgr: UpdateCacheFiles:       ApplyTemplate: Yes-Template: {RelPath}")
 					#print(f'** RENDERED **\n{Rendered}\n** END RENDERED **')
 					#print(f'** TEMPLATE **\n{TemplateContent}\n** END TEMPLATE **')
 					attr['IsTemplate'] = True
@@ -239,17 +254,20 @@ def UpdateCacheFiles():
 					file.write(Rendered)
 			else:
 				# File is empty
-				LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache:         ApplyTemplate: Empty: {RelPath}")
+				LOG(3, f"cfgmgr: UpdateCacheFiles:       ApplyTemplate: Empty: {RelPath}")
 				attr['IsEmpty'] = True
 				if RelPath in ExistingCache:
-					LOG(3, f"cfgmgr: UpdateCacheFiles: UpdateCache:         ApplyTemplate: Empty: Removed: {RelPath}")
+					LOG(3, f"cfgmgr: UpdateCacheFiles:       ApplyTemplate: Empty: Removed: {RelPath}")
 					os.remove(attr['CachePath'])
 				
 		if not RunLog_FH:
 			RunLog_FH = open(RunLog, 'a')
 		if 'Last_ApplyModTime' not in attr: attr['Last_ApplyModTime'] = 0
 		if 'IsEmpty' not in attr: attr['IsEmpty'] = False
-		RunLog_FH.write(f"{RelPath},{attr['Last_ApplyModTime']},{attr['TemplateLastModTime']},{attr['IsTemplate']},{attr['IsEmpty']}\n")
+		RunLog_FH.write(f"{RelPath},{attr['Last_ApplyModTime']},{attr['TemplateLastModTime']},{0+attr['IsTemplate']},{0+attr['IsEmpty']}\n")
+	#LOG(4,f"DEBUG: Files=")
+	#if current_verbosity>=4: pp(Files)
+
 def CleanCacheFiles():
 	LOG(3, f'cfgmgr: CleanCacheFiles: Beginning cache clean ({CacheDirectory})...')
 	os.remove(CacheDirectory)
@@ -458,7 +476,7 @@ def Add(FilesToAdd):
 		if RelPath in Files:
 			## Error if file is a template
 			if Files[RelPath]['IsTemplate']:
-				raise UserError(f"{RelPath}: Cannot add template file from working directory; update template in repo instead.")
+				raise RuntimeError(f"{RelPath}: Cannot add template file from working directory; update template in repo instead.")
 			WorkingPath = Files[RelPath]['WorkingPath']
 			TemplatePath = Files[RelPath]['TemplatePath']
 			CachePath = Files[RelPath]['CachePath']
