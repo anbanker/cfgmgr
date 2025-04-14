@@ -90,7 +90,8 @@ def LoadTemplateFiles():
 				'TemplatePath': TemplateFileAbsPath,
 				'RelPath': CacheFileRelPath,
 				'TemplateFileRelPath': TemplateFileRelPath,
-				'IsTemplate': IsTemplate}
+				'IsTemplate': IsTemplate, 
+				'IsEmpty': None}
 			
 			## add timestamp
 			Files[CacheFileRelPath]['TemplateLastModTime'] = os.path.getmtime(TemplateFileAbsPath)
@@ -322,8 +323,7 @@ def DisplayStatus():
 	NeedTitle=1
 	for RelPath, attr in Files.items():
 		# Skip files with "same" status
-		if attr['Status'] == 'Same(ts)': continue
-		if attr['Status'] == 'Same(content)': continue
+		if attr['Status'] == 'Same': continue
 		if attr['Status'] == 'Empty': continue
 		#if attr['Status'] == 'Similar': continue
 		if NeedTitle:
