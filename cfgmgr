@@ -27,7 +27,7 @@ current_verbosity = 2
 TemplateMode = TemplateMode.AllExceptExtension
 CacheDirectory = ''  #Actual value set in main
 TemplateDirectory = ''  #Actual value set in main
-WorkingDirectory = ''  #Actual value set in main
+ManagedDirectory = ''  #Actual value set in main
 #https://jinja.palletsprojects.com/en/stable/templates/#whitespace-control
 TemplateTool = Environment(
 		loader=FileSystemLoader(TemplateDirectory),
@@ -91,7 +91,7 @@ def LoadTemplateFiles():
 			Files[CacheFileRelPath]['TemplateLastModTime'] = os.path.getmtime(TemplateFileAbsPath)
 			
 			## Add working tree path
-			WorkingPath = os.path.join(WorkingDirectory, CacheFileRelPath)
+			WorkingPath = os.path.join(ManagedDirectory, CacheFileRelPath)
 			Files[CacheFileRelPath]['WorkingPath'] = WorkingPath
 			#if os.path.exists(WorkingPath):
 			#	Files[CacheFileRelPath]['WorkingLastModTime'] = os.path.getmtime(WorkingPath)
@@ -466,7 +466,7 @@ def Apply(FilesToApply):
 			if attr['Status'] == 'Same':
 				# Nothing to do: Timestamp is same as last apply
 				pass
-			elif attr['Status'] == "Same(exl ts)":
+			elif attr['Status'] == 'Same(exl ts)':
 				# Update timestamp so don't need to read file next time
 				WriteLog = True
 				attr['Last_ApplyModTime'] = attr['WorkingLastModTime']
@@ -477,7 +477,7 @@ def Apply(FilesToApply):
 				os.remove(attr['WorkingPath'])
 				attr['Last_ApplyModTime'] = 0
 				WriteLog = True
-			if (attr['Status'] == "Diff") and (attr['Last_ApplyModTime'] > 0) and (attr['WorkingLastModTime'] != attr['Last_ApplyModTime']) and (not Force):
+			elif (attr['Status'] == "Diff") and (attr['Last_ApplyModTime'] > 0) and (attr['WorkingLastModTime'] != attr['Last_ApplyModTime']) and (not Force):
 				print(f"{RelPath}: File has been modified in working directory - skipping overwriting working changes!")
 				pp(attr)
 			elif    (attr['Status'] == "Missing") \
@@ -489,7 +489,7 @@ def Apply(FilesToApply):
 				attr['Last_ApplyModTime'] = os.path.getmtime(attr['WorkingPath'])
 				WriteLog = True
 			else:
-				raise RuntimeError(f"ERROR: Unknown status: {attr['Status']}")
+				raise RuntimeError(f"ERROR: Unknown status '{attr['Status']}' for file '{attr['RelPath']}'\n")
 			
 			if WriteLog or Mode == 'w':
 				LogFile.write(f"{RelPath},{attr['Last_ApplyModTime']},{attr['TemplateLastModTime']},{attr['IsTemplate']},{attr['IsEmpty']}\n")
@@ -510,7 +510,7 @@ def Add(FilesToAdd):
 			WorkingLastModTime = Files[RelPath]['WorkingLastModTime']
 		
 		## Copy file from working directory to template directory, and set template time to working time
-		if not WorkingPath: WorkingPath = os.path.join(WorkingDirectory, RelPath)
+		if not WorkingPath: WorkingPath = os.path.join(ManagedDirectory, RelPath)
 		if not TemplatePath: TemplatePath = os.path.join(TemplateDirectory, RelPath)
 		if not CachePath: CachePath = os.path.join(CacheDirectory, RelPath)
 		if not WorkingLastModTime: WorkingLastModTime = os.path.getmtime(WorkingPath)
@@ -546,9 +546,10 @@ def Diff(FilesToDiff):
 
 if __name__ == "__main__":
 	## Remove program name
-	sys.argv.pop(0)
+	ProgramName = sys.argv.pop(0)
 	
 	# Process options
+	ApplyAsRoot = False
 	while (len(sys.argv) > 0) and (sys.argv[0][0] == '-'):
 		arg = sys.argv.pop(0)
 		if arg == '--verbose':
@@ -559,12 +560,12 @@ if __name__ == "__main__":
 			CacheDirectory = sys.argv.pop(0)
 		elif arg == '--TemplateDir':
 			TemplateDirectory = sys.argv.pop(0)
-		elif arg == '--WorkingDirectory':
-			WorkingDirectory = sys.argv.pop(0)
+		elif arg == '--ManagedDirectory':
+			ManagedDirectory = sys.argv.pop(0)
 		elif arg == '--root':
-			if not WorkingDirectory: WorkingDirectory = '/'
+			ApplyAsRoot = True
 		else:
-			raise UserWarning(f"Unknown option: {arg}")
+			raise RuntimeWarning(f"Unknown option: {arg}")
 	
 	## Verify usage
 	if not TemplateDirectory:
@@ -584,8 +585,8 @@ if __name__ == "__main__":
 		if not CacheSubdir: CacheSubdir = 'ROOT_DIR'
 		CacheDirectory = os.path.join(CacheRoot, CacheSubdir)
 	
-	if not WorkingDirectory:
-		WorkingDirectory = os.environ['HOME']
+	if not ManagedDirectory:
+		ManagedDirectory = os.environ['HOME']
 	
 	## Create Template Tool object
 	TemplateTool = Environment(
@@ -626,6 +627,12 @@ if __name__ == "__main__":
 	elif SubCommand == 'apply':
 		UpdateCacheFiles()
 		CalculateStatus()
+		
+		## If not root, call again with sudo
+		if ApplyAsRoot and (os.geteuid() != 0):
+			print("Re-executing as root")
+			os.execvp('sudo', ['sudo', sys.executable, ProgramName, '--root', '--TemplateDir', TemplateDirectory, '--CacheDir', CacheDirectory, '--ManagedDirectory', ManagedDirectory, 'apply', *sys.argv])
+		print(f'RUNNING APPLY (as uid={os.geteuid()})!!!');
 		Apply(sys.argv)
 	else:
 		#raise Exception('Usage Error', f"ERROR: Unknown sub-command: {SubCommand}")
