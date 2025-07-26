@@ -91,10 +91,10 @@ def LoadTemplateFiles():
 			Files[CacheFileRelPath]['TemplateLastModTime'] = os.path.getmtime(TemplateFileAbsPath)
 			
 			## Add working tree path
-			WorkingPath = os.path.join(ManagedDirectory, CacheFileRelPath)
-			Files[CacheFileRelPath]['WorkingPath'] = WorkingPath
-			#if os.path.exists(WorkingPath):
-			#	Files[CacheFileRelPath]['WorkingLastModTime'] = os.path.getmtime(WorkingPath)
+			ManagedPath = os.path.join(ManagedDirectory, CacheFileRelPath)
+			Files[CacheFileRelPath]['ManagedPath'] = ManagedPath
+			#if os.path.exists(ManagedPath):
+			#	Files[CacheFileRelPath]['WorkingLastModTime'] = os.path.getmtime(ManagedPath)
 			
 			## Add cache path
 			Files[CacheFileRelPath]['CachePath'] = os.path.join(CacheDirectory, CacheFileRelPath)
@@ -173,10 +173,13 @@ def LoadConfigData():
 		with open(ConfigDataFile, 'r') as file:
 			# Process each line
 			for line in file:
-				# Skip comments
+				line = line.rstrip('\n')
+				# Skip comments and empty lines
 				if line.startswith('#'): continue
+				if not line: continue
 				
 				# Split line into key and value
+				print(f"DEBUG: line={line};")
 				key, value = re.split(r'\s*=\s*', line.strip(), 1)
 				
 				# Add to TemplateData
@@ -281,8 +284,8 @@ def CalculateStatus():
 	for RelPath, attr in Files.items():
 		LOG(4, f'cfgmgr: CalculateStatus: Processing RelPath={RelPath}')
 		## Get working directory status
-		if os.path.exists(attr['WorkingPath']):
-			attr['WorkingLastModTime'] = os.path.getmtime(attr['WorkingPath'])
+		if os.path.exists(attr['ManagedPath']):
+			attr['WorkingLastModTime'] = os.path.getmtime(attr['ManagedPath'])
 		else:
 			attr['WorkingLastModTime'] = None
 		
@@ -311,7 +314,7 @@ def CalculateStatus():
 						with open(attr['CachePath'], OpenMode) as file:
 							attr['CacheContent'] = file.read()
 					
-					with open(attr['WorkingPath'], OpenMode) as file:
+					with open(attr['ManagedPath'], OpenMode) as file:
 						WorkingContent = file.read()
 					
 					if WorkingContent == attr['CacheContent']:
@@ -351,6 +354,10 @@ def DisplayStatus():
 			print("   Run 'cfgmgr apply' to apply template to working directory")
 			NeedTitle=0
 		print(f"    {attr['Status'].ljust(13)}: {RelPath}")
+	
+	# If there were no differences (still need title), display title indicating this
+	if NeedTitle:
+		print(f"## No differences between template working directory and managed directory!")
 
 def GetGitStatusOneline():
 	output = subprocess.run(['git', '-C', TemplateDirectory, 'status', '--porcelain=v2', '--branch'], capture_output=True)
@@ -474,7 +481,7 @@ def Apply(FilesToApply):
 				# Nothing to do (cache and working don't exist)
 				pass
 			elif attr['Status'] == "Exists-but-shouldn't":
-				os.remove(attr['WorkingPath'])
+				os.remove(attr['ManagedPath'])
 				attr['Last_ApplyModTime'] = 0
 				WriteLog = True
 			elif (attr['Status'] == "Diff") and (attr['Last_ApplyModTime'] > 0) and (attr['WorkingLastModTime'] != attr['Last_ApplyModTime']) and (not Force):
@@ -483,10 +490,10 @@ def Apply(FilesToApply):
 			elif    (attr['Status'] == "Missing") \
 			     or (attr['Status'] == "Similar") \
 			     or (attr['Status'] == "Diff"):
-				ThisFileDir = os.path.dirname(attr['WorkingPath'])
+				ThisFileDir = os.path.dirname(attr['ManagedPath'])
 				os.makedirs(ThisFileDir, exist_ok=True)
-				shutil.copy(attr['CachePath'], attr['WorkingPath'])
-				attr['Last_ApplyModTime'] = os.path.getmtime(attr['WorkingPath'])
+				shutil.copy(attr['CachePath'], attr['ManagedPath'])
+				attr['Last_ApplyModTime'] = os.path.getmtime(attr['ManagedPath'])
 				WriteLog = True
 			else:
 				raise RuntimeError(f"ERROR: Unknown status '{attr['Status']}' for file '{attr['RelPath']}'\n")
@@ -496,35 +503,36 @@ def Apply(FilesToApply):
 
 def Add(FilesToAdd):
 	for RelPath in FilesToAdd:
-		WorkingPath = ''
+		ManagedPath = ''
 		TemplatePath = ''
 		CachePath = ''
 		WorkingLastModTime = 0
 		if RelPath in Files:
+			print("DEBUG: RelPath IS in Files")
 			## Error if file is a template
 			if Files[RelPath]['IsTemplate']:
 				raise RuntimeError(f"{RelPath}: Cannot add template file from working directory; update template in repo instead.")
-			WorkingPath = Files[RelPath]['WorkingPath']
+			ManagedPath = Files[RelPath]['ManagedPath']
 			TemplatePath = Files[RelPath]['TemplatePath']
 			CachePath = Files[RelPath]['CachePath']
 			WorkingLastModTime = Files[RelPath]['WorkingLastModTime']
 		
 		## Copy file from working directory to template directory, and set template time to working time
-		if not WorkingPath: WorkingPath = os.path.join(ManagedDirectory, RelPath)
+		if not ManagedPath: ManagedPath = os.path.join(ManagedDirectory, RelPath)
 		if not TemplatePath: TemplatePath = os.path.join(TemplateDirectory, RelPath)
 		if not CachePath: CachePath = os.path.join(CacheDirectory, RelPath)
-		if not WorkingLastModTime: WorkingLastModTime = os.path.getmtime(WorkingPath)
+		if not WorkingLastModTime: WorkingLastModTime = os.path.getmtime(ManagedPath)
 		
 		TemplateDir = os.path.dirname(TemplatePath)
 		os.makedirs(TemplateDir, exist_ok=True)
-		shutil.copy(WorkingPath, TemplatePath)
+		shutil.copy(ManagedPath, TemplatePath)
 		subprocess.run(['git', '-C', TemplateDirectory, 'add', RelPath], text=True)
 		
 		#TO DO: Update cache file, verify it matches (no "template" processing errrors)
 
 def Diff(FilesToDiff):
 	FileType1 = 'Template'
-	FileType2 = 'Working'
+	FileType2 = 'Managed'
 	if FilesToDiff[0] == '--cvw' or FilesToDiff[0] == '--c2w':
 		FileType1 = 'Cache'
 		FilesToDiff.pop(0)
@@ -595,6 +603,13 @@ if __name__ == "__main__":
 	
 	RunLog = os.path.join(CacheDirectory, 'run-log.cfgmgr')
 	LoadTemplateFiles()
+	
+	# Remove leading "/" on RelPath
+	#print(f"part a; value={sys.argv};type={type(sys.argv)};len={len(sys.argv)}")
+	for index in range(0, len(sys.argv)):
+		sys.argv[index] = sys.argv[index].strip('/')
+	
+	#exit(1)
 	
 	if SubCommand == 'UpdateCache':
 		UpdateCacheFiles()
