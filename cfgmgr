@@ -282,12 +282,18 @@ def CleanCacheFiles():
 def CalculateStatus():
 	LOG(3, f'cfgmgr: CalculateStatus: Start')
 	for RelPath, attr in Files.items():
-		LOG(4, f'cfgmgr: CalculateStatus: Processing RelPath={RelPath}')
 		## Get working directory status
 		if os.path.exists(attr['ManagedPath']):
 			attr['WorkingLastModTime'] = os.path.getmtime(attr['ManagedPath'])
 		else:
 			attr['WorkingLastModTime'] = None
+		LOG(4, f"cfgmgr: CalculateStatus: Processing RelPath={RelPath}; " \
+			f"IsTemplate={attr['IsTemplate']};IsEmpty={attr['IsEmpty']};" \
+			f"TemplateLastModTime={attr['TemplateLastModTime']};" \
+			f"Last_CacheUpdateTime={attr['Last_CacheUpdateTime']};" \
+			f"Last_ApplyModTime={attr['Last_ApplyModTime']};" \
+			f"WorkingLastModTime={attr['WorkingLastModTime']}" \
+			)
 		
 		## Skip if file shouldn't be managed in working directory
 		if attr['IsEmpty'] == True:
@@ -299,8 +305,10 @@ def CalculateStatus():
 			if attr['WorkingLastModTime'] == None:
 				attr['Status'] = 'Missing'
 			else:
-				if attr['WorkingLastModTime'] == attr['Last_ApplyModTime']:
-					attr['Status'] = 'Same'
+				if     (attr['Last_CacheUpdateTime'] >= attr['TemplateLastModTime']) \
+				   and (attr['Last_ApplyModTime'] >= attr['Last_CacheUpdateTime']) \
+				   and (attr['WorkingLastModTime'] == attr['Last_ApplyModTime']):
+						attr['Status'] = 'Same'
 				else:
 					if RelPath == '.gitignore':
 						print(f'attr={attr}')
@@ -319,6 +327,9 @@ def CalculateStatus():
 					
 					if WorkingContent == attr['CacheContent']:
 						attr['Status'] = 'Same(exl ts)'
+						LOG(4, f"  Last_CacheUpdateTime >= TemplateLastModTime? {attr['Last_CacheUpdateTime'] >= attr['TemplateLastModTime']}")
+						LOG(4, f"  Last_ApplyModTime >= Last_CacheUpdateTime? {attr['Last_ApplyModTime'] >= attr['Last_CacheUpdateTime']}")
+						LOG(4, f"  WorkingLastModTime == Last_ApplyModTime? {attr['WorkingLastModTime'] == attr['Last_ApplyModTime']}")
 					elif WorkingContent[0:-1] == attr['CacheContent']:
 						attr['Status'] = 'Similar'
 					else:
@@ -464,7 +475,7 @@ def Apply(FilesToApply):
 		for RelPath in FilesToApply:
 			LOG(4, f'cfgmgr: Apply:   File={RelPath}')
 			if RelPath not in Files:
-				raise UserError(f"ERROR: {RelPath} is not managed")
+				raise RuntimeError(f"ERROR: {RelPath} is not managed")
 			
 			attr = Files[RelPath]
 			
@@ -474,9 +485,16 @@ def Apply(FilesToApply):
 				# Nothing to do: Timestamp is same as last apply
 				pass
 			elif attr['Status'] == 'Same(exl ts)':
-				# Update timestamp so don't need to read file next time
-				WriteLog = True
-				attr['Last_ApplyModTime'] = attr['WorkingLastModTime']
+				if attr['WorkingLastModTime'] >= attr['Last_CacheUpdateTime'] and attr['Last_CacheUpdateTime'] >= attr['TemplateLastModTime']:
+					# Update timestamp so don't need to read file next time
+					WriteLog = True
+					attr['Last_ApplyModTime'] = attr['WorkingLastModTime']
+				else:
+					# Update mtime on working, and then timestamp
+					WriteLog = True
+					#now = int(datetime.datetime.now().timestamp())
+					attr['Last_ApplyModTime'] = attr['Last_CacheUpdateTime']
+					os.utime(attr['ManagedPath'], (attr['Last_CacheUpdateTime'], attr['Last_CacheUpdateTime']))
 			elif attr['Status'] == 'Empty':
 				# Nothing to do (cache and working don't exist)
 				pass
