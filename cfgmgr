@@ -85,7 +85,8 @@ def LoadTemplateFiles():
 				'RelPath': CacheFileRelPath,
 				'TemplateFileRelPath': TemplateFileRelPath,
 				'IsTemplate': IsTemplate, 
-				'IsEmpty': None}
+				'IsEmpty': None,
+				'Last_CacheUpdateTime': 0}
 			
 			## add timestamp
 			Files[CacheFileRelPath]['TemplateLastModTime'] = os.path.getmtime(TemplateFileAbsPath)
@@ -269,6 +270,8 @@ def UpdateCacheFiles():
 					os.remove(attr['CachePath'])
 				
 		if not RunLog_FH:
+			RunLogDir = os.path.dirname(RunLog)
+			os.makedirs(RunLogDir, exist_ok=True)
 			RunLog_FH = open(RunLog, 'a')
 		if 'Last_ApplyModTime' not in attr: attr['Last_ApplyModTime'] = 0
 		RunLog_FH.write(f"{RelPath},{attr['Last_ApplyModTime']},{attr['TemplateLastModTime']},{0+attr['IsTemplate']},{0+attr['IsEmpty']}\n")
