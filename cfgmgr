@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 import socket
 import os
 from pprint import pp
@@ -29,9 +29,7 @@ CacheDirectory = ''  #Actual value set in main
 TemplateDirectory = ''  #Actual value set in main
 ManagedDirectory = ''  #Actual value set in main
 #https://jinja.palletsprojects.com/en/stable/templates/#whitespace-control
-TemplateTool = Environment(
-		loader=FileSystemLoader(TemplateDirectory),
-		trim_blocks=True)
+TemplateTool = None
 RunLog = ''
 Files = {}
 TemplateData = {}
@@ -629,6 +627,7 @@ if __name__ == "__main__":
 	## Create Template Tool object
 	TemplateTool = Environment(
 		loader=FileSystemLoader(TemplateDirectory),
+		undefined=StrictUndefined,
 		trim_blocks=True)
 	
 	RunLog = os.path.join(CacheDirectory, 'run-log.cfgmgr')
