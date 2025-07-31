@@ -131,13 +131,13 @@ def LoadTemplateFiles():
 				Files[RelPath]['Last_CacheUpdateTime'] = Last_CacheUpdateTime
 				Files[RelPath]['IsEmpty'] = Last_IsEmpty
 				
-				## Clear IsTemplate for files that don't have template content for faster processing
+				## Clear IsTemplate for files that don't have template content for faster processing and easier adding
 				# TODO: Re-add this for performance benefits
-				#if     (Files[RelPath]['IsTemplate']) \
-				#   and (not Last_CacheUpdateIsTemplate) \
-				#   and (Files[RelPath]['TemplateLastModTime'] == Last_CacheUpdateTime):
-				#	Files[RelPath]['IsTemplate'] = False
-				#	LOG(4, f"cfgmgr: LoadTemplateFiles: Clearing template flag: {RelPath}")
+				if     (Files[RelPath]['IsTemplate']) \
+				   and (not Last_CacheUpdateIsTemplate) \
+				   and (Files[RelPath]['TemplateLastModTime'] == Last_CacheUpdateTime):
+					Files[RelPath]['IsTemplate'] = False
+					LOG(4, f"                         : Clearing template flag: {RelPath}: TemplateLastModTime={Files[RelPath]['TemplateLastModTime']};  Last_CacheUpdateTime={Last_CacheUpdateTime}")
 	
 	for RelPath,attr in Files.items():
 		LOG(4, f"cfgmgr: LoadTemplateFiles: FileSummary: {RelPath}, IsTemplate={attr['IsTemplate']}, IsEmpty={attr['IsEmpty']}, TemplateLastModTime={attr['TemplateLastModTime']}")
@@ -356,7 +356,13 @@ def CalculateStatus():
 
 def DisplayStatus():
 	print('## git status')
-	subprocess.run(['git', '-C', TemplateDirectory, 'status'], text=True)
+	
+	# Run git status, capture output
+	GitLines = subprocess.run(['git', '-C', TemplateDirectory, 'status'], capture_output=True)
+	for Line in GitLines.stdout.decode().split('\n'):
+		print(f"    {Line}")
+	
+	#subprocess.run(['git', '-C', TemplateDirectory, 'status'], text=True)
 	NeedTitle=1
 	for RelPath, attr in Files.items():
 		# Skip files with "same" status
@@ -507,7 +513,9 @@ def Apply(FilesToApply):
 				WriteLog = True
 			elif (attr['Status'] == "Diff") and (attr['Last_ApplyModTime'] > 0) and (attr['WorkingLastModTime'] != attr['Last_ApplyModTime']) and (not Force):
 				print(f"{RelPath}: File has been modified in working directory - skipping overwriting working changes!")
-				pp(attr)
+				print(f"    Managed Directory mod time: {datetime.datetime.fromtimestamp(attr['WorkingLastModTime'])}")
+				print(f"    Last apply mod time       : {datetime.datetime.fromtimestamp(attr['Last_ApplyModTime'])}")
+				#pp(attr)
 			elif    (attr['Status'] == "Missing") \
 			     or (attr['Status'] == "Similar") \
 			     or (attr['Status'] == "Diff"):
@@ -530,6 +538,7 @@ def Add(FilesToAdd):
 		WorkingLastModTime = 0
 		if RelPath in Files:
 			print("DEBUG: RelPath IS in Files")
+			pp(Files[RelPath])
 			## Error if file is a template
 			if Files[RelPath]['IsTemplate']:
 				raise RuntimeError(f"{RelPath}: Cannot add template file from working directory; update template in repo instead.")
@@ -668,7 +677,7 @@ if __name__ == "__main__":
 		if ApplyAsRoot and (os.geteuid() != 0):
 			print("Re-executing as root")
 			os.execvp('sudo', ['sudo', sys.executable, ProgramName, '--root', '--TemplateDir', TemplateDirectory, '--CacheDir', CacheDirectory, '--ManagedDirectory', ManagedDirectory, 'apply', *sys.argv])
-		print(f'RUNNING APPLY (as uid={os.geteuid()})!!!');
+		#print(f'RUNNING APPLY (as uid={os.geteuid()})!!!');
 		Apply(sys.argv)
 	else:
 		#raise Exception('Usage Error', f"ERROR: Unknown sub-command: {SubCommand}")
