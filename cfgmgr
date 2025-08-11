@@ -235,7 +235,11 @@ def UpdateCacheFiles():
 				TemplateContent = file.read()
 			
 			## Load and apply template
-			template = TemplateTool.get_template(attr['TemplateFileRelPath'])
+			try:
+				template = TemplateTool.get_template(attr['TemplateFileRelPath'])
+			except Exception as e:
+				print(f"ERROR: {RelPath}: Template processing error: {e}.  Cache *NOT* updated.")
+				continue
 			
 			Rendered = template.render(TemplateData)
 			attr['CacheContent'] = Rendered
