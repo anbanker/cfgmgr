@@ -30,7 +30,7 @@ class TemplateHandleMode(Enum):
 
 class TemplateFile:
 	__slots__ = (\
-		'RelativePath', 'NoTemplateExtension', 'IsTemplate', 'IsEmpty', 'Status', \
+		'RelativePath', 'NoTemplateExtension', 'IsTemplate', 'IsEmpty', 'Status', 'IsBinary', \
 		'Template_mtime', \
 		'Managed_mtime', 'Last_Managed_mtime', 'Last_Status', \
 		'TemplateContent', 'Rendered')
@@ -47,6 +47,7 @@ class TemplateFile:
 		self.Last_Status = None
 		self.TemplateContent = None
 		self.Rendered = None
+		self.IsBinary = False
 		
 		# Check if file is explicitly non-template due to extension
 		BasePath,Extension = os.path.splitext(RelativePath)
@@ -54,6 +55,7 @@ class TemplateFile:
 			self.RelativePath = BasePath
 			self.NoTemplateExtension = Extension
 			self.IsTemplate = False
+			self.IsBinary = True
 		
 		if Template_mtime is None: self.Template_mtime = os.path.getmtime(self.getTemplatePath())
 		
@@ -96,7 +98,12 @@ class TemplateFile:
 	
 	def loadRunLog(self, Line):
 		# Split log line into fields
-		RelativePath, IsTemplate, IsEmpty, Status, Template_mtime, Managed_mtime, EOL = Line.strip().split(',')
+		try:
+			RelativePath, IsTemplate, IsEmpty, Status, Template_mtime, Managed_mtime, EOL = Line.strip().split(',')
+		except:
+			print(f"Warning: Invalid RunLog line: {Line}")
+			return
+		
 		LOG(4, "RunLog-1: " \
 		       f"RelativePath={type(RelativePath)}{RelativePath}, " \
 		       f"IsTemplate={type(IsTemplate)}{IsTemplate}, " \
@@ -206,8 +213,11 @@ class TemplateFile:
 			self.UpdateCache()
 			self.LOG(4, f"CalculateStatus: After-UpdateCache: ")
 		else:
-			with open(self.getTemplatePath(), 'r') as file:
+			Binary = ''
+			if self.IsBinary: Binary = 'b'
+			with open(self.getTemplatePath(), f'r{Binary}') as file:
 				self.TemplateContent = file.read()
+			
 			self.Rendered = self.TemplateContent
 			self.LOG(4, f"CalculateStatus: Not-a-template_Skipping-UpdateCache: ")
 		
@@ -225,12 +235,17 @@ class TemplateFile:
 		
 		if self.Managed_mtime is not None and not self.IsEmpty:
 			# File exists and should exist, is not a template: need to compare content Template to Managed content
-			with open(self.getManagedPath(), 'r') as file:
+			Binary = ''
+			if self.IsBinary: Binary = 'b'
+			with open(self.getManagedPath(), f'r{Binary}') as file:
 				ManagedContent = file.read()
 			
 			if ManagedContent == self.Rendered:
 				self.Status = 'Same'
+			elif ManagedContent[0:-1] == self.Rendered:
+				self.Status = 'Similar'
 			else:
+				#print(f"DEBUG: ManagedContent={type(ManagedContent)}; self.Rendered={type(self.Rendered)}")
 				self.Status = 'Different'
 				#with open('/home/abanker/tmp/ManagedContent.txt', 'w') as FH:
 				#	FH.write(ManagedContent)
@@ -485,6 +500,8 @@ def PrintStatusOneline():
 			pass
 		elif attr.Status == 'Same':
 			pass
+		elif attr.Status == 'Similar':
+			pass
 		elif attr.Status == 'Extra':
 			Extra=Extra+1
 		elif attr.Status == 'Missing':
@@ -570,30 +587,15 @@ def Apply(FilesToApply):
 
 def Add(FilesToAdd):
 	for RelPath in FilesToAdd:
-		ManagedPath = ''
-		TemplatePath = ''
-		CachePath = ''
-		WorkingLastModTime = 0
 		if RelPath in Files:
-			print("DEBUG: RelPath IS in Files")
-			pp(Files[RelPath])
 			## Error if file is a template
-			if Files[RelPath]['IsTemplate']:
+			if Files[RelPath].IsTemplate:
 				raise RuntimeError(f"{RelPath}: Cannot add template file from working directory; update template in repo instead.")
-			ManagedPath = Files[RelPath]['ManagedPath']
-			TemplatePath = Files[RelPath]['TemplatePath']
-			CachePath = Files[RelPath]['CachePath']
-			WorkingLastModTime = Files[RelPath]['WorkingLastModTime']
 		
-		## Copy file from working directory to template directory, and set template time to working time
-		if not ManagedPath: ManagedPath = os.path.join(ManagedDirectory, RelPath)
-		if not TemplatePath: TemplatePath = os.path.join(TemplateDirectory, RelPath)
-		if not CachePath: CachePath = os.path.join(CacheDirectory, RelPath)
-		if not WorkingLastModTime: WorkingLastModTime = os.path.getmtime(ManagedPath)
-		
-		TemplateDir = os.path.dirname(TemplatePath)
+		f = TemplateFile(RelPath)
+		TemplateDir = os.path.dirname(f.getTemplatePath())
 		os.makedirs(TemplateDir, exist_ok=True)
-		shutil.copy(ManagedPath, TemplatePath)
+		shutil.copy(f.getManagedPath(), f.getTemplatePath())
 		subprocess.run(['git', '-C', TemplateDirectory, 'add', RelPath], text=True)
 		
 		#TO DO: Update cache file, verify it matches (no "template" processing errrors)
@@ -707,7 +709,6 @@ if __name__ == "__main__":
 		Diff(sys.argv)
 	
 	elif SubCommand == 'add':
-		UpdateCacheFiles()
 		CalculateStatus()
 		Add(sys.argv)
 	
