@@ -153,16 +153,18 @@ class TemplateFile:
 		self.LOG(4, "After RunLog: ")
 		
 	def UpdateCache(self):
+		## Read template
 		with open(self.getTemplatePath(), 'r') as file:
 			self.TemplateContent = file.read()
 			
-		## Load and apply template
+		## Read template (again.... maybe a more efficient method?)
 		try:
 			template = TemplateTool.get_template(self.RelativePath)
 		except Exception as e:
 			print(f"ERROR: {RelPath}: Template processing error: {e}.  Cache *NOT* updated.")
 			return
 		
+		## Render template
 		self.Rendered = template.render(TemplateData)
 		
 		# Check if empty
@@ -172,7 +174,11 @@ class TemplateFile:
 		self.IsEmpty = False  #should already be set
 		
 		# Check if not actually templated
-		if (self.Rendered == self.TemplateContent) or (self.Rendered == self.TemplateContent[:-1]):
+		if self.Rendered == self.TemplateContent:
+			self.IsTemplate = False
+			return
+		elif self.Rendered == self.TemplateContent[:-1]:
+			self.Rendered = self.TemplateContent  #Template strips last CR, restore it
 			self.IsTemplate = False
 			return
 		self.IsTemplate = True  #Should already be set
@@ -187,6 +193,14 @@ class TemplateFile:
 		with open(CachePath, 'w') as file:
 			file.write(self.Rendered)
 	
+	def GetDebugStr(self, var):
+		str = f"{type(var)}:"
+		if var is None:
+			str = f"{str}<None>"
+		else:
+			str = f"{str}{len(var)}"
+		return(str)
+		
 	def CalculateStatus(self):
 		try:
 			Managed_stat = os.stat(self.getManagedPath())
@@ -212,14 +226,6 @@ class TemplateFile:
 		if self.IsTemplate:
 			self.UpdateCache()
 			self.LOG(4, f"CalculateStatus: After-UpdateCache: ")
-		else:
-			Binary = ''
-			if self.IsBinary: Binary = 'b'
-			with open(self.getTemplatePath(), f'r{Binary}') as file:
-				self.TemplateContent = file.read()
-			
-			self.Rendered = self.TemplateContent
-			self.LOG(4, f"CalculateStatus: Not-a-template_Skipping-UpdateCache: ")
 		
 		if self.Managed_mtime is     None and     self.IsEmpty:
 			self.Status = 'Empty'
@@ -233,6 +239,14 @@ class TemplateFile:
 			self.Status = 'Missing'
 			return True
 		
+		Binary = ''
+		if self.IsBinary: Binary = 'b'
+		with open(self.getTemplatePath(), f'r{Binary}') as file:
+			self.TemplateContent = file.read()
+		
+		self.Rendered = self.TemplateContent
+		self.LOG(4, f"CalculateStatus: Not-a-template_Skipping-UpdateCache: ")
+		
 		if self.Managed_mtime is not None and not self.IsEmpty:
 			# File exists and should exist, is not a template: need to compare content Template to Managed content
 			Binary = ''
@@ -242,7 +256,7 @@ class TemplateFile:
 			
 			if ManagedContent == self.Rendered:
 				self.Status = 'Same'
-			elif ManagedContent[0:-1] == self.Rendered:
+			elif ManagedContent == self.Rendered[0:-1]:
 				self.Status = 'Similar'
 			else:
 				#print(f"DEBUG: ManagedContent={type(ManagedContent)}; self.Rendered={type(self.Rendered)}")
@@ -457,6 +471,13 @@ def GetGitStatusOneline():
 			continue
 			# Do nothing
 		
+		## Renamed changes: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>
+		match = re.match(r'^2 (?P<XY>..) (?P<SubmoduleState>....) (?P<modeHead>[0-7]{6}) (?P<modeIndex>[0-7]{6}) (?P<modeWorktree>[0-7]{6}) (?P<hashHead>[0-9a-f]{40}) (?P<hashIndex>[0-9a-f]{40}) (R|C)(\d+) (?P<path>.+)$', line)
+		if match:
+			StatusCount['R'] = StatusCount.get('R', 0) + 1
+			continue
+		
+		## Ordinary changes: 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
 		match = re.match(r'^1 (?P<XY>..) (?P<SubmoduleState>....) (?P<modeHead>[0-7]{6}) (?P<modeIndex>[0-7]{6}) (?P<modeWorktree>[0-7]{6}) (?P<hashHead>[0-9a-f]{40}) (?P<hashIndex>[0-9a-f]{40}) (?P<path>.+)$', line)
 		if match:
 			# X is index; Y is working-tree
@@ -527,10 +548,13 @@ def Apply(FilesToApply):
 	LOG(3, f'cfgmgr: Apply: Applying...')
 	
 	Force = False
+	ByStatus = None
 	while (len(FilesToApply) > 0) and (FilesToApply[0][0] == '-'):
 		arg = FilesToApply.pop(0)
 		if arg == '--force':
 			Force = True
+		elif arg == '--ByStatus':
+			ByStatus = FilesToApply.pop(0)
 		elif arg == '--':
 			break
 		else:
@@ -546,6 +570,9 @@ def Apply(FilesToApply):
 			raise RuntimeError(f"ERROR: {RelPath} is not managed")
 		
 		attr = Files[RelPath]
+		
+		# Skip if only appling specific status and this file status doesn't match
+		if ByStatus is not None and attr.Status != ByStatus: continue
 		
 		LOG(4, f"cfgmgr: Apply:     Status={attr.Status}")
 		WriteLog = False
@@ -570,7 +597,7 @@ def Apply(FilesToApply):
 				shutil.copy(attr.getTemplatePath(), attr.getManagedPath())
 			attr.Managed_mtime = os.path.getmtime(attr.getManagedPath())
 			attr.Status = 'Same'
-		elif attr.Status == 'Different':
+		elif attr.Status == 'Different' or attr.Status == 'Similar':
 			# TO DO: Check time of last apply, to not overwrite changes made to managed directory
 			if attr.IsTemplate:
 				shutil.copy(attr.getCachePath(), attr.getManagedPath())
