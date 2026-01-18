@@ -164,11 +164,16 @@ class TemplateFile:
 		with open(self.getTemplatePath(), 'r') as file:
 			self.TemplateContent = file.read()
 			
+		if not self.IsTemplate:
+			LOG(4, f"Not updating cache for {self.RelativePath} since it is not a template")
+			self.Rendered = self.TemplateContent
+			return
+		
 		## Read template (again.... maybe a more efficient method?)
 		try:
 			template = TemplateTool.get_template(self.RelativePath)
 		except Exception as e:
-			print(f"ERROR: {RelPath}: Template processing error: {e}.  Cache *NOT* updated.")
+			print(f"ERROR: {self.RelativePath}: Template processing error: {e}.  Cache *NOT* updated.")
 			return
 		
 		## Render template
