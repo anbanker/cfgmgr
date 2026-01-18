@@ -675,7 +675,13 @@ def Diff(FilesToDiff):
 		elif FileType2 == 'Managed': right=attr.getManagedPath()
 		else: raise RuntimeError('Unhandled file type')
 		
-		subprocess.run([ConfigData['difftool'], left, right], text=True)
+		#subprocess.run([ConfigData['difftool'], left, right], text=True)
+		#subprocess.run(['/usr/bin/bcompare', attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
+		#split difftool in case of arguments
+		terminal_size = os.get_terminal_size()
+		difftool_parts = re.split(r'\s+', ConfigData['difftool'])
+		print(f"Running: {difftool_parts} {attr[f'{FileType1}Path']} {attr[f'{FileType2}Path']}")
+		subprocess.run([*difftool_parts, attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
 
 
 if __name__ == "__main__":
