@@ -57,7 +57,11 @@ class TemplateFile:
 			self.IsTemplate = False
 			self.IsBinary = True
 		
-		if Template_mtime is None: self.Template_mtime = os.path.getmtime(self.getTemplatePath())
+		if Template_mtime is None:
+			try:
+				self.Template_mtime = os.path.getmtime(self.getTemplatePath())
+			except:
+				pass
 		
 	def LOG(self, level=4, prefix=''):
 		Template_mtime = 'None' if self.Template_mtime is None else datetime.datetime.fromtimestamp(self.Template_mtime).strftime('%Y-%m-%d_%H:%M:%S')
@@ -95,7 +99,7 @@ class TemplateFile:
 			f"{self.IsEmpty}," \
 			f"{self.Status}," \
 			f"{self.Template_mtime}," \
-			f"{self.Managed_mtime}," \
+			f"{self.Last_Managed_mtime}," \
 			"EOL"
 			)
 	
@@ -609,13 +613,14 @@ def Apply(FilesToApply):
 			attr.Managed_mtime = os.path.getmtime(attr.getManagedPath())
 			attr.Status = 'Same'
 		elif attr.Status == 'Different' or attr.Status == 'Similar':
-			# TO DO: Check time of last apply, to not overwrite changes made to managed directory
-			attr.LOG(level=1)
+			if (attr.Last_Managed_mtime is not None) and (attr.Managed_mtime != attr.Last_Managed_mtime) and not Force:
+				LOG(1, f"{attr.RelativePath}: Managed file has been modified since last apply; use '--force' to overwrite")
+				continue
 			if attr.IsTemplate:
 				shutil.copy(attr.getCachePath(), attr.getManagedPath())
 			else:
 				shutil.copy(attr.getTemplatePath(), attr.getManagedPath())
-			attr.Managed_mtime = os.path.getmtime(attr.getManagedPath())
+			attr.Last_Managed_mtime = os.path.getmtime(attr.getManagedPath())
 			attr.Status = 'Same'
 			#print(f"    Managed Directory mod time: {datetime.datetime.fromtimestamp(attr['WorkingLastModTime'])}")
 			#print(f"    Last apply mod time       : {datetime.datetime.fromtimestamp(attr['Last_ApplyModTime'])}")
@@ -771,10 +776,13 @@ if __name__ == "__main__":
 		Diff(sys.argv)
 	
 	elif SubCommand == 'add':
+		LoadConfigData()
+		LoadTemplateData()
 		CalculateStatus()
 		Add(sys.argv)
 	
 	elif SubCommand == 'apply':
+		LoadConfigData()
 		LoadTemplateData()
 		CalculateStatus()
 		
