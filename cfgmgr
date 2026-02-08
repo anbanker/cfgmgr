@@ -690,8 +690,8 @@ def Diff(FilesToDiff):
 		#split difftool in case of arguments
 		terminal_size = os.get_terminal_size()
 		difftool_parts = re.split(r'\s+', ConfigData['difftool'])
-		print(f"Running: {difftool_parts} {attr[f'{FileType1}Path']} {attr[f'{FileType2}Path']}")
-		subprocess.run([*difftool_parts, attr[f'{FileType1}Path'], attr[f'{FileType2}Path']], text=True)
+		print(f"Running: {difftool_parts} {left} {right}")
+		subprocess.run([*difftool_parts, left, right], text=True)
 
 
 if __name__ == "__main__":
