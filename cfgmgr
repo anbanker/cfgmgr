@@ -60,8 +60,8 @@ class TemplateFile:
 		if Template_mtime is None:
 			try:
 				self.Template_mtime = os.path.getmtime(self.getTemplatePath())
-			except:
-				pass
+			except FileNotFoundError:
+				self.Template_mtime = None
 		
 	def LOG(self, level=4, prefix=''):
 		Template_mtime = 'None' if self.Template_mtime is None else datetime.datetime.fromtimestamp(self.Template_mtime).strftime('%Y-%m-%d_%H:%M:%S')
@@ -79,6 +79,7 @@ class TemplateFile:
 			f"Managed_mtime={Managed_mtime}, " \
 			f"Last_Managed_mtime={Last_Managed_mtime}, " \
 			f"Last_Status={self.Last_Status}, " \
+			f"IsBinary={self.IsBinary}, " \
 			)
 			#f"getTemplatePath={self.getTemplatePath()}, " \
 			#f"getManagedPath={self.getManagedPath()}, "\
@@ -160,10 +161,16 @@ class TemplateFile:
 		self.LOG(4, "After RunLog: ")
 		
 	def UpdateCache(self):
+		if self.IsBinary:
+			self.IsTemplate = False
+			with open(self.getTemplatePath(), 'rb') as file:
+				self.Rendered = file.read()
+			return
+		
 		## Read template
 		with open(self.getTemplatePath(), 'r') as file:
 			self.TemplateContent = file.read()
-			
+		
 		if not self.IsTemplate:
 			LOG(4, f"Not updating cache for {self.RelativePath} since it is not a template")
 			self.Rendered = self.TemplateContent
@@ -636,7 +643,11 @@ def Apply(FilesToApply):
 
 def Add(FilesToAdd):
 	for RelPath in FilesToAdd:
+		if RelPath[0] == '/':
+			print(f"{RelPath}: Cannot add absolute path")
+			exit(1)
 		if RelPath in Files:
+			#print(f"  DEBUG:File already managed: {RelPath}")
 			## Error if file is a template
 			if Files[RelPath].IsTemplate:
 				raise RuntimeError(f"{RelPath}: Cannot add template file from working directory; update template in repo instead.")
@@ -714,6 +725,24 @@ if __name__ == "__main__":
 			ManagedDirectory = sys.argv.pop(0)
 		elif arg == '--root':
 			ApplyAsRoot = True
+		elif arg == '--help':
+			print("cfgmgr [options] <sub-command> [args]")
+			print("")
+			print("Options:")
+			print("  --verbose: Increase verbosity")
+			print("  --CacheDir <dir>: Specify cache directory (default: ~/.cache/cfgmgr/<template-dir>)")
+			print("  --TemplateDir <dir>: Specify template directory (default: $HOME/vc/anbanker/config-home)")
+			print("  --ManagedDirectory <dir>: Specify managed directory (default: $HOME)")
+			print("  --root: Apply templates as root (requires sudo)")
+			print("")
+			print("Sub-commands:")
+			print("  status: Show status of managed files")
+			print("  statusOneline: Show status of managed files in one line")
+			print("  git: Run git command in template directory")
+			print("  diff: Show differences between template and managed files")
+			print("  add: Add a file from managed directory to template directory")
+			print("  apply: Apply templates to managed files")
+			exit(0)
 		else:
 			raise RuntimeWarning(f"Unknown option: {arg}")
 	
@@ -797,6 +826,11 @@ if __name__ == "__main__":
 			os.execvp('sudo', ['sudo', sys.executable, ProgramName, '--root', '--TemplateDir', TemplateDirectory, '--CacheDir', CacheDirectory, '--ManagedDirectory', ManagedDirectory, 'apply', *sys.argv])
 		#print(f'RUNNING APPLY (as uid={os.geteuid()})!!!');
 		Apply(sys.argv)
+	
+	elif SubCommand == 'restore':
+		print("The 'resore' is not a recognized subcommand.  Perhaps you meant 'apply'?")
+		exit(1)
+	
 	else:
 		#raise Exception('Usage Error', f"ERROR: Unknown sub-command: {SubCommand}")
 		print(f"ERROR: Unknown sub-command: {SubCommand}")
